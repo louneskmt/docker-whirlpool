@@ -86,4 +86,4 @@ EXPOSE  8898
 # Switch to user whirlpool
 USER    whirlpool
 
-ENTRYPOINT [ "entrypoint.sh" ]
+ENTRYPOINT [ "/entrypoint.sh" ]
