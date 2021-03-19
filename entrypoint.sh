@@ -21,4 +21,4 @@ if [ "$WHIRLPOOL_DOJO" == "on" ]; then
 fi
 
 cd /home/whirlpool/.whirlpool-cli
-java -jar /usr/local/whirlpool-cli/whirlpool-client-cli-run.jar "${whirlpool_options[@]} $@"
+java -jar /usr/local/whirlpool-cli/whirlpool-client-cli-run.jar "--listen ${whirlpool_options[@]} $@"
