@@ -1,31 +1,17 @@
-FROM    debian:buster-slim
+FROM    debian:buster-slim AS builder
 
-ENV     WHIRLPOOL_HOME                /home/whirlpool
 ENV     WHIRLPOOL_DIR                 /usr/local/whirlpool-cli
 
 # Install prerequisites
-# Create group & user whirlpool
-# Create /usr/share/man/man1 directory
-# Create .whirlpool-cli subdirectory of WHIRLPOOL_HOME
-# Create /usr/local/src/whirlpool-cli directory
-
-RUN     mkdir -p /usr/share/man/man1
-
 RUN     set -ex && \
         apt-get update && \
-        apt-get install -y libevent-dev zlib1g-dev libssl-dev gcc make automake ca-certificates autoconf musl-dev coreutils gpg wget default-jdk && \
-        addgroup --system -gid 1000 whirlpool && \
-        adduser --system --ingroup whirlpool -uid 1000 whirlpool && \
-        mkdir -p "$WHIRLPOOL_HOME/.whirlpool-cli" && \
-        chown -Rv whirlpool:whirlpool "$WHIRLPOOL_HOME" && \
-        chmod -R 750 "$WHIRLPOOL_HOME" && \
-        mkdir -p "$WHIRLPOOL_DIR"
+        apt-get install -y libevent-dev zlib1g-dev libssl-dev gcc make automake ca-certificates autoconf musl-dev coreutils gpg wget
 
 # Install Tor
 ENV     WHIRLPOOL_TOR_URL             https://dist.torproject.org
 ENV     WHIRLPOOL_TOR_MIRROR_URL      https://tor.eff.org/dist
-ENV     WHIRLPOOL_TOR_VERSION         0.4.6.6
-ENV     WHIRLPOOL_TOR_GPG_KS_URI      hkp://keyserver.ubuntu.com:80
+ENV     WHIRLPOOL_TOR_VERSION         0.4.6.9
+ENV     WHIRLPOOL_TOR_GPG_KS_URI      hkps://keyserver.ubuntu.com:443
 ENV     WHIRLPOOL_TOR_GPG_KEY1        0xEB5A896A28988BF5
 ENV     WHIRLPOOL_TOR_GPG_KEY2        0xC218525819F78451
 ENV     WHIRLPOOL_TOR_GPG_KEY3        0x21194EBB165733EA
@@ -44,10 +30,7 @@ RUN     set -ex && \
         if [ $res -gt 0 ]; then \
           wget -qO "tor-$WHIRLPOOL_TOR_VERSION.tar.gz.asc" "$WHIRLPOOL_TOR_MIRROR_URL/tor-$WHIRLPOOL_TOR_VERSION.tar.gz.asc" ; \
         fi && \
-        gpg --keyserver "$WHIRLPOOL_TOR_GPG_KS_URI" --recv-keys "$WHIRLPOOL_TOR_GPG_KEY1" && \
-        gpg --keyserver "$WHIRLPOOL_TOR_GPG_KS_URI" --recv-keys "$WHIRLPOOL_TOR_GPG_KEY2" && \
-        gpg --keyserver "$WHIRLPOOL_TOR_GPG_KS_URI" --recv-keys "$WHIRLPOOL_TOR_GPG_KEY3" && \
-        gpg --keyserver "$WHIRLPOOL_TOR_GPG_KS_URI" --recv-keys "$WHIRLPOOL_TOR_GPG_KEY4" && \
+        gpg --batch --keyserver "$WHIRLPOOL_TOR_GPG_KS_URI" --recv-keys $WHIRLPOOL_TOR_GPG_KEY1 $WHIRLPOOL_TOR_GPG_KEY2 $WHIRLPOOL_TOR_GPG_KEY3 $WHIRLPOOL_TOR_GPG_KEY4 && \
         gpg --verify "tor-$WHIRLPOOL_TOR_VERSION.tar.gz.asc" && \
         tar -xzvf "tor-$WHIRLPOOL_TOR_VERSION.tar.gz" -C /usr/local/src && \
         cd "/usr/local/src/tor-$WHIRLPOOL_TOR_VERSION" && \
@@ -63,21 +46,55 @@ RUN     set -ex && \
 
 # Install whirlpool-cli
 ENV     WHIRLPOOL_URL                 https://code.samourai.io/whirlpool/whirlpool-client-cli/uploads
-ENV     WHIRLPOOL_VERSION             0.10.13
-ENV     WHIRLPOOL_VERSION_HASH        c1bb32bac6d4b377f625c996387375c2
+ENV     WHIRLPOOL_VERSION             0.10.15
+ENV     WHIRLPOOL_VERSION_HASH        3259fdd4a6ea87de3e138db592593558
 ENV     WHIRLPOOL_JAR                 "whirlpool-client-cli-$WHIRLPOOL_VERSION-run.jar"
-ENV     WHIRLPOOL_SHA256              78894b934716988eddb8da6db9c6734a3ded416fe68434bedb730f71ded7649d
+ENV     WHIRLPOOL_SHA256              3cfbfddbd3be66b66d37a55d65d99824730d01cd226ca192f4f9591e7bc2e03d
+
 
 RUN     set -ex && \
+        mkdir -p "$WHIRLPOOL_DIR" && \
         cd "$WHIRLPOOL_DIR" && \
         echo "$WHIRLPOOL_SHA256 *$WHIRLPOOL_JAR" > WHIRLPOOL_CHECKSUMS && \
         wget -qO "$WHIRLPOOL_JAR" "$WHIRLPOOL_URL/$WHIRLPOOL_VERSION_HASH/$WHIRLPOOL_JAR" && \
         sha256sum -c WHIRLPOOL_CHECKSUMS 2>&1 | grep OK && \
-        mv "$WHIRLPOOL_JAR" whirlpool-client-cli-run.jar && \
-        chown -Rv whirlpool:whirlpool "$WHIRLPOOL_DIR" && \
+        mv "$WHIRLPOOL_JAR" whirlpool-client-cli-run.jar
+
+FROM    debian:buster-slim
+
+ENV     TOR_HOME        /var/lib/tor
+ENV     TOR_BIN         /usr/local/bin/tor
+ENV     TOR_CONF        /etc/tor
+ENV     TOR_MAN         /usr/local/share/man
+
+ENV     WHIRLPOOL_HOME  /home/whirlpool
+ENV     WHIRLPOOL_DIR   /usr/local/whirlpool-cli
+
+ARG     WHIRLPOOL_LINUX_UID
+ARG     WHIRLPOOL_LINUX_GID
+
+RUN     mkdir -p /usr/share/man/man1
+
+RUN     set -ex && \
+        apt-get update && \
+        apt-get install -qqy default-jdk libevent-dev
+
+RUN     addgroup --system -gid ${WHIRLPOOL_LINUX_GID} whirlpool && \
+        adduser --system --ingroup whirlpool -uid ${WHIRLPOOL_LINUX_UID} whirlpool
+
+COPY    --from=builder $TOR_BIN $TOR_BIN
+COPY    --from=builder $TOR_CONF $TOR_CONF
+COPY    --from=builder $TOR_MAN $TOR_MAN
+COPY    --from=builder $WHIRLPOOL_DIR $WHIRLPOOL_DIR
+
+RUN     chown -Rv whirlpool:whirlpool "$WHIRLPOOL_DIR" && \
         chmod -R 750 "$WHIRLPOOL_DIR"
 
-# Copy restart script
+RUN     mkdir -p "$WHIRLPOOL_HOME/.whirlpool-cli" && \
+        chown -Rv whirlpool:whirlpool "$WHIRLPOOL_HOME" && \
+        chmod -R 750 "$WHIRLPOOL_HOME"
+
+# Copy entrypoint script
 COPY    ./entrypoint.sh /entrypoint.sh
 
 RUN     chown whirlpool:whirlpool /entrypoint.sh && \
